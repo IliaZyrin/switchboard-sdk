@@ -38,19 +38,14 @@ pid_override = []
 ## Client functionality for off-chain interactions (Gateway, Crossbar, transaction builders).
 ## Uses Solana SDK v2 with anchor-client compatibility.
 ## Includes: RPC client, transaction building, oracle feeds, and Crossbar integration.
-client = ["anchor-lang", "tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v2", "secp256k1-host", "dep:solana-account-decoder-v2", "dep:solana-client-v2", "dep:solana-sdk-v2", "dep:chrono", "dep:futures-util", "dep:spl-associated-token-account", "dep:tokio-tungstenite", "dep:url"]
+client = ["anchor-lang", "tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v2", "dep:solana-account-decoder-v2", "dep:solana-client-v2", "dep:solana-sdk-v2", "dep:chrono", "dep:futures-util", "dep:spl-associated-token-account", "dep:tokio-tungstenite", "dep:url"]
 
 ## Alias for `client` feature - explicitly uses Solana SDK v2.
 client-v2 = ["client"]
 
 ## Client feature using Solana v3 crates.
 ## Uses v2 compat modules for types that haven't been published for v3 yet.
-client-v3 = ["tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v3", "secp256k1-host", "dep:solana-account-decoder-v3", "dep:solana-client-v3", "dep:solana-sdk-v3", "dep:solana-sdk-v2"]
-
-## Enables host-only secp256k1 functionality such as signing and std-backed helpers.
-## Keep this disabled for SBF/CPI builds; normal host cargo trees may still include
-## getrandom through Solana host-only dependencies even when SBF builds are safe.
-secp256k1-host = ["libsecp256k1/std", "libsecp256k1/hmac"]
+client-v3 = ["tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v3", "dep:solana-account-decoder-v3", "dep:solana-client-v3", "dep:solana-sdk-v3", "dep:solana-sdk-v2"]
 
 ## Configures the crate for Solana devnet deployment.
 devnet = []
@@ -120,3 +115,7 @@ tokio = { version = "^1.41", features = ["full", "tracing"], optional = true }
 tokio-stream = { version = ">=0.1.17", optional = true }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 url = { version = "2.5", optional = true }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+# Preserve host signing/std behavior without enabling host randomness paths in SBF builds.
+libsecp256k1 = { version = "0.7.2", default-features = false, features = ["std", "hmac"] }
