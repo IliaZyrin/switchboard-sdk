@@ -13,7 +13,7 @@ use rust_decimal::Decimal;
 use serde::de::Error as DeError;
 use serde::de::{SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
-use solana_sdk::genesis_config::ClusterType;
+use solana_cluster_type::ClusterType;
 use solana_sdk::pubkey::Pubkey;
 use std::fmt;
 use switchboard_utils::utils::median;
@@ -663,7 +663,7 @@ impl CrossbarClient {
     /// Stream the simulation of feed responses from the crossbar gateway for Solana feeds.
     pub fn stream_simulate_solana_feeds<'a>(
         &'a self,
-        network: solana_sdk::genesis_config::ClusterType,
+        network: ClusterType,
         feed_pubkeys: &'a [solana_sdk::pubkey::Pubkey],
         poll_interval: Duration,
     ) -> impl Stream<Item = Result<Vec<SimulateSolanaFeedsResponse>, AnyhowError>> + 'a {
