@@ -92,7 +92,7 @@ futures-util = { version = "0.3", optional = true }
 faster-hex = "0.10.0"
 futures = { version = "0.3.31", optional = true }
 hex = { version = "0.4", optional = true }
-libsecp256k1 = "0.7.1"
+libsecp256k1 = { version = "0.7.2", default-features = false, features = ["static-context"] }
 pinocchio = { version = "0.9.2", features = ["std"], optional = true }
 prost = { version = "0.13.1", optional = true }
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false, optional = true }
@@ -104,8 +104,8 @@ solana-account-decoder-v2 = { package = "solana-account-decoder", version = ">=2
 solana-account-decoder-v3 = { package = "solana-account-decoder", version = ">=3", optional = true }
 solana-client-v2 = { package = "solana-client", version = ">=2,<3", optional = true }
 solana-client-v3 = { package = "solana-client", version = ">=3", optional = true }
-solana-program-v2 = { package = "solana-program", version = ">=2,<3", optional = true }
-solana-program-v3 = { package = "solana-program", version = ">=3", optional = true }
+solana-program-v2 = { package = "solana-program", version = ">=2,<3", default-features = false, features = ["borsh"], optional = true }
+solana-program-v3 = { package = "solana-program", version = ">=3", default-features = false, features = ["borsh"], optional = true }
 solana-sdk-v2 = { package = "solana-sdk", version = ">=2,<3", optional = true }
 solana-sdk-v3 = { package = "solana-sdk", version = ">=3", optional = true }
 spl-associated-token-account = { version = "6.0", optional = true }
@@ -115,3 +115,7 @@ tokio = { version = "^1.41", features = ["full", "tracing"], optional = true }
 tokio-stream = { version = ">=0.1.17", optional = true }
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 url = { version = "2.5", optional = true }
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+# Preserve host signing/std behavior without enabling host randomness paths in SBF builds.
+libsecp256k1 = { version = "0.7.2", default-features = false, features = ["std", "hmac"] }
