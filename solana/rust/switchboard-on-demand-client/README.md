@@ -10,7 +10,7 @@ A middleman service to fetch oracle jobs from IPFS and to return feed price simu
 Before publishing this crate to crates.io, commit the release changes to `main` or create a release tag that points at the release commit, then run:
 
 ```bash
-rust/switchboard-on-demand-client/scripts/verify-crate-release.sh
+solana/rust/switchboard-on-demand-client/scripts/verify-crate-release.sh
 ```
 
 The script refuses to package from a dirty tree, refuses non-`main` branches unless the commit is tagged, and verifies the generated crate's `.cargo_vcs_info.json` has `dirty = false` and points at the release commit. Do not publish if this check fails.

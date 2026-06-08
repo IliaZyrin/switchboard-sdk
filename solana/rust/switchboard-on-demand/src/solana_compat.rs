@@ -8,7 +8,9 @@
 
 // Ensure only one Solana version is enabled
 #[cfg(all(feature = "solana-v2", feature = "solana-v3"))]
-compile_error!("Cannot enable both 'solana-v2' and 'solana-v3' features at the same time. Choose one.");
+compile_error!(
+    "Cannot enable both 'solana-v2' and 'solana-v3' features at the same time. Choose one."
+);
 
 // Ensure only one client version is enabled
 #[cfg(all(feature = "client", feature = "client-v3"))]
@@ -21,9 +23,9 @@ compile_error!("Cannot enable both 'client-v2' and 'client-v3' features at the s
 #[cfg(feature = "anchor")]
 pub use anchor_lang::solana_program;
 
-// When anchor is NOT enabled, use version-specific solana_program
-// v3 takes precedence when both v2 and v3 are enabled
-#[cfg(all(not(feature = "anchor"), feature = "solana-v2"))]
+// When anchor is NOT enabled, use version-specific solana_program.
+// A no-default-features build falls back to v2 program types.
+#[cfg(all(not(feature = "anchor"), not(feature = "solana-v3")))]
 pub use solana_program_v2 as solana_program;
 #[cfg(all(not(feature = "anchor"), feature = "solana-v3"))]
 pub use solana_program_v3 as solana_program;
@@ -44,19 +46,28 @@ pub use solana_sdk_v2 as solana_sdk;
 // Re-export them here to provide a consistent API
 
 // V2: these come from solana_sdk
-#[cfg(all(any(feature = "client", feature = "client-v2"), not(feature = "client-v3")))]
+#[cfg(all(
+    any(feature = "client", feature = "client-v2"),
+    not(feature = "client-v3")
+))]
 pub mod address_lookup_table {
     #[allow(deprecated)]
     pub use solana_sdk_v2::address_lookup_table::*;
 }
 
-#[cfg(all(any(feature = "client", feature = "client-v2"), not(feature = "client-v3")))]
+#[cfg(all(
+    any(feature = "client", feature = "client-v2"),
+    not(feature = "client-v3")
+))]
 pub mod compute_budget {
     #[allow(deprecated)]
     pub use solana_sdk_v2::compute_budget::*;
 }
 
-#[cfg(all(any(feature = "client", feature = "client-v2"), not(feature = "client-v3")))]
+#[cfg(all(
+    any(feature = "client", feature = "client-v2"),
+    not(feature = "client-v3")
+))]
 pub mod commitment_config {
     #[allow(deprecated)]
     pub use solana_sdk_v2::commitment_config::*;
@@ -142,13 +153,19 @@ extern "C" {
 #[cfg(feature = "anchor")]
 pub use solana_program_v2::address_lookup_table::AddressLookupTableAccount;
 
-// For v2, it's in solana_program
-#[cfg(all(feature = "solana-v2", not(feature = "solana-v3"), not(feature = "anchor")))]
+// For v2 and no-default builds, it's in solana_program
+#[cfg(all(not(feature = "solana-v3"), not(feature = "anchor")))]
 pub use solana_program::address_lookup_table::AddressLookupTableAccount;
 
 // For v3 when used with client-v3, get it from our v2-compat re-exported address_lookup_table module
 #[cfg(all(feature = "solana-v3", feature = "client-v3"))]
 pub use address_lookup_table::AddressLookupTableAccount;
+
+#[cfg(feature = "client-v3")]
+pub type MessageAddressLookupTableAccount = solana_message_v3::AddressLookupTableAccount;
+
+#[cfg(not(feature = "client-v3"))]
+pub type MessageAddressLookupTableAccount = AddressLookupTableAccount;
 
 /// Cluster type enum for specifying Solana network environments
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,4 +179,3 @@ pub enum ClusterType {
     /// Local development environment
     Development,
 }
-

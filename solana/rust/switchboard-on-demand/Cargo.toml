@@ -1,6 +1,6 @@
 [package]
 name = "switchboard-on-demand"
-version = "0.12.1"
+version = "0.12.2"
 # docs.rs autobuild has difficulty with ahash dep. Host yuorself at https://tiiny.host/
 documentation = "https://docs.rs/switchboard-on-demand/latest/switchboard_on_demand"
 edition = "2021"
@@ -11,6 +11,7 @@ keywords = ["switchboard", "oracle", "solana"]
 homepage = "https://switchboard.xyz"
 repository = "https://github.com/switchboard-xyz/solana-sdk/tree/main"
 license = "MIT"
+exclude = [".env"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -45,7 +46,7 @@ client-v2 = ["client"]
 
 ## Client feature using Solana v3 crates.
 ## Uses v2 compat modules for types that haven't been published for v3 yet.
-client-v3 = ["tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v3", "dep:solana-account-decoder-v3", "dep:solana-client-v3", "dep:solana-sdk-v3", "dep:solana-sdk-v2"]
+client-v3 = ["tokio", "futures", "reqwest", "prost", "dashmap", "tokio-stream", "bs58", "hex", "base64", "serde_json", "switchboard-utils", "solana-v3", "dep:solana-account-decoder-v3", "dep:solana-client-v3", "dep:solana-message-v3", "dep:solana-sdk-v3", "dep:solana-sdk-v2", "dep:chrono", "dep:futures-util", "dep:tokio-tungstenite", "dep:url"]
 
 ## Configures the crate for Solana devnet deployment.
 devnet = []
@@ -66,7 +67,7 @@ pinocchio = ["dep:pinocchio"]
 test_only_ignore_singers = []
 
 ## Uses Solana SDK version 2.x (>= 2).
-solana-v2 = ["dep:solana-program-v2"]
+solana-v2 = []
 
 ## Uses Solana SDK version 3.x (>= 3).
 solana-v3 = ["dep:solana-program-v3"]
@@ -83,7 +84,7 @@ arrayref = "0.3.9"
 base64 = { version = "0.22", optional = true }
 base64ct = "<1.8"
 bincode = { version = "^1" }
-borsh = { version = "1.5.7" }
+borsh = { version = "1.5.7", features = ["derive"] }
 bs58 = { version = "0.4", features = ["alloc"], optional = true }
 bytemuck = { version = "^1", features = ["derive"] }
 chrono = { version = "0.4", optional = true }
@@ -104,7 +105,8 @@ solana-account-decoder-v2 = { package = "solana-account-decoder", version = ">=2
 solana-account-decoder-v3 = { package = "solana-account-decoder", version = ">=3", optional = true }
 solana-client-v2 = { package = "solana-client", version = ">=2,<3", optional = true }
 solana-client-v3 = { package = "solana-client", version = ">=3", optional = true }
-solana-program-v2 = { package = "solana-program", version = ">=2,<3", default-features = false, features = ["borsh"], optional = true }
+solana-message-v3 = { package = "solana-message", version = ">=3,<4", optional = true }
+solana-program-v2 = { package = "solana-program", version = ">=2,<3", default-features = false, features = ["borsh"] }
 solana-program-v3 = { package = "solana-program", version = ">=3", default-features = false, features = ["borsh"], optional = true }
 solana-sdk-v2 = { package = "solana-sdk", version = ">=2,<3", optional = true }
 solana-sdk-v3 = { package = "solana-sdk", version = ">=3", optional = true }

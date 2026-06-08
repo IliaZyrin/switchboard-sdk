@@ -67,8 +67,8 @@ pub async fn ix_to_tx_v0(
     final_ixs.extend_from_slice(ixs);
 
     // Convert AddressLookupTableAccount types
-    let converted_luts: Vec<crate::solana_compat::AddressLookupTableAccount> = luts.iter().map(|lut| {
-        crate::solana_compat::AddressLookupTableAccount {
+    let converted_luts: Vec<crate::solana_compat::MessageAddressLookupTableAccount> = luts.iter().map(|lut| {
+        crate::solana_compat::MessageAddressLookupTableAccount {
             key: lut.key.to_bytes().into(),
             addresses: lut.addresses.iter().map(|addr| addr.to_bytes().into()).collect(),
         }
@@ -125,8 +125,8 @@ async fn estimate_compute_units(rpc_client: &RpcClient, ixs: &[Instruction], lut
     ixs.insert(0, compute_limit_ix_converted);
 
     // Convert AddressLookupTableAccount types for this function too
-    let converted_luts: Vec<crate::solana_compat::AddressLookupTableAccount> = luts.iter().map(|lut| {
-        crate::solana_compat::AddressLookupTableAccount {
+    let converted_luts: Vec<crate::solana_compat::MessageAddressLookupTableAccount> = luts.iter().map(|lut| {
+        crate::solana_compat::MessageAddressLookupTableAccount {
             key: lut.key.to_bytes().into(),
             addresses: lut.addresses.iter().map(|addr| addr.to_bytes().into()).collect(),
         }
