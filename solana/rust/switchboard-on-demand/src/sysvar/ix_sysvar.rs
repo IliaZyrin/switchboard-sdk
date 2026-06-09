@@ -3,9 +3,7 @@ use core::ptr::read_unaligned;
 use crate::solana_compat::ed25519_program::ID as ED25519_PROGRAM_ID;
 use crate::solana_compat::sysvar::instructions::ID as INSTRUCTIONS_SYSVAR_ID;
 
-use crate::{
-    borrow_account_data, check_pubkey_eq, get_account_key, AsAccountInfo, Pubkey,
-};
+use crate::{borrow_account_data, check_pubkey_eq, get_account_key, AsAccountInfo, Pubkey};
 
 /// Optimized wrapper for Solana's Instructions sysvar with fast instruction data extraction.
 ///
@@ -50,10 +48,10 @@ impl Instructions {
             *get_account_key!(ix_sysvar),
             INSTRUCTIONS_SYSVAR_ID
         ));
-        unsafe {
-            let data = borrow_account_data!(ix_sysvar);
-            let base = data.as_ptr();
+        let data = borrow_account_data!(ix_sysvar);
+        let base = data.as_ptr();
 
+        unsafe {
             // Read num_instructions from offset
             let num_instructions = read_unaligned(base as *const u16) as usize;
 
@@ -128,9 +126,10 @@ impl Instructions {
         T: AsAccountInfo<'a>,
     {
         let ix_sysvar = ix_sysvar.as_account_info();
+        let data = borrow_account_data!(ix_sysvar);
+        let base = data.as_ptr();
+
         unsafe {
-            let data = borrow_account_data!(ix_sysvar);
-            let base = data.as_ptr();
             let start_offset = read_unaligned(base.add(2 + (idx << 1)) as *const u16) as usize;
             let mut p = base.add(start_offset);
             let num_accounts = read_unaligned(p as *const u16) as usize;

@@ -580,8 +580,8 @@ impl TransactionBuilder {
                 data: ix.data.clone(),
             }
         }).collect();
-        let converted_lookup_accounts: Vec<crate::solana_compat::AddressLookupTableAccount> = address_lookup_accounts.iter().map(|lut| {
-            crate::solana_compat::AddressLookupTableAccount {
+        let converted_lookup_accounts: Vec<crate::solana_compat::MessageAddressLookupTableAccount> = address_lookup_accounts.iter().map(|lut| {
+            crate::solana_compat::MessageAddressLookupTableAccount {
                 key: lut.key.to_bytes().into(),
                 addresses: lut.addresses.iter().map(|addr| addr.to_bytes().into()).collect(),
             }

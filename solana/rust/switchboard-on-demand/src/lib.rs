@@ -60,7 +60,9 @@ compile_error!("Cannot enable both 'solana-v2' and 'solana-v3' features. Choose 
 compile_error!("Cannot enable both 'client' (v2) and 'client-v3' features. Use 'client' for Solana v2 or 'client-v3' for Solana v3.");
 
 #[cfg(all(feature = "client-v2", feature = "client-v3"))]
-compile_error!("Cannot enable both 'client-v2' and 'client-v3' features. Choose one client version.");
+compile_error!(
+    "Cannot enable both 'client-v2' and 'client-v3' features. Choose one client version."
+);
 
 // When both solana-v2 and client features are enabled, provide type compatibility layers
 #[cfg(all(feature = "solana-v2", feature = "client"))]
@@ -161,6 +163,8 @@ pub use sysvar::*;
 /// AccountInfo compatibility layer
 mod account_info_compat;
 pub use account_info_compat::{AccountInfo, AsAccountInfo};
+#[cfg(feature = "pinocchio")]
+pub use account_info_compat::{AccountView, AsAccountInfoMut};
 
 cfg_client! {
     pub type RpcClient = crate::solana_compat::solana_client::nonblocking::rpc_client::RpcClient;

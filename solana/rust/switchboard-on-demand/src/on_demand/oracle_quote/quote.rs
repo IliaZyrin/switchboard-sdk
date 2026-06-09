@@ -12,6 +12,8 @@ use crate::solana_compat::sol_memcpy_;
 // Use our AccountInfo type alias that conditionally uses pinocchio or anchor/solana-program
 use crate::AccountInfo;
 use crate::{borrow_mut_account_data, check_pubkey_eq, AsAccountInfo, Instructions, Pubkey};
+#[cfg(feature = "pinocchio")]
+use crate::AsAccountInfoMut;
 
 #[allow(unused)]
 const SLOTS_PER_EPOCH: u64 = 432_000;
@@ -409,7 +411,38 @@ impl<'a> OracleQuote<'a> {
     ///
     /// Panics if the oracle account buffer is too small or slot validation fails.
     #[inline(always)]
-    pub fn write(clock_slot: u64, source: &[u8], queue: impl AsRef<[u8]>, oracle_account: &AccountInfo) {
+    #[cfg(feature = "pinocchio")]
+    pub fn write(
+        clock_slot: u64,
+        source: &[u8],
+        queue: impl AsRef<[u8]>,
+        oracle_account: &mut AccountInfo,
+    ) {
+        let mut dst_ref = borrow_mut_account_data!(oracle_account);
+        let dst: &mut [u8] = &mut dst_ref;
+        assert!(dst.len() >= 55); // discriminator(8) + queue(32) + u16 + minimum data (13 bytes)
+        unsafe {
+            let dst_ptr = dst.as_mut_ptr();
+            *(dst_ptr as *mut u64) = QUOTE_DISCRIMINATOR_U64_LE;
+            // Copy queue at offset 8 using 4 u64 writes
+            let queue_ptr = queue.as_ref().as_ptr() as *const u64;
+            let dst_queue_ptr = dst_ptr.add(8) as *mut u64;
+            *dst_queue_ptr = *queue_ptr;
+            *dst_queue_ptr.add(1) = *queue_ptr.add(1);
+            *dst_queue_ptr.add(2) = *queue_ptr.add(2);
+            *dst_queue_ptr.add(3) = *queue_ptr.add(3);
+        }
+        Self::store_delimited(clock_slot, source, &mut dst[40..]);
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "pinocchio"))]
+    pub fn write(
+        clock_slot: u64,
+        source: &[u8],
+        queue: impl AsRef<[u8]>,
+        oracle_account: &AccountInfo,
+    ) {
         let mut dst_ref = borrow_mut_account_data!(oracle_account);
         let dst: &mut [u8] = &mut dst_ref;
         assert!(dst.len() >= 55); // discriminator(8) + queue(32) + u16 + minimum data (13 bytes)
@@ -453,6 +486,31 @@ impl<'a> OracleQuote<'a> {
     /// # Panics
     /// Panics if the oracle account buffer is too small for the data.
     #[inline(always)]
+    #[cfg(feature = "pinocchio")]
+    pub fn write_unchecked(
+        source: &[u8],
+        queue: impl AsRef<[u8]>,
+        oracle_account: &mut AccountInfo,
+    ) {
+        let mut dst_ref = borrow_mut_account_data!(oracle_account);
+        let dst: &mut [u8] = &mut dst_ref;
+        assert!(dst.len() >= 55); // discriminator(8) + queue(32) + u16 + minimum data (13 bytes)
+        unsafe {
+            let dst_ptr = dst.as_mut_ptr();
+            *(dst_ptr as *mut u64) = QUOTE_DISCRIMINATOR_U64_LE;
+            // Copy queue at offset 8 using 4 u64 writes
+            let queue_ptr = queue.as_ref().as_ptr() as *const u64;
+            let dst_queue_ptr = dst_ptr.add(8) as *mut u64;
+            *dst_queue_ptr = *queue_ptr;
+            *dst_queue_ptr.add(1) = *queue_ptr.add(1);
+            *dst_queue_ptr.add(2) = *queue_ptr.add(2);
+            *dst_queue_ptr.add(3) = *queue_ptr.add(3);
+        }
+        Self::store_delimited_unchecked(source, &mut dst[40..]);
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "pinocchio"))]
     pub fn write_unchecked(source: &[u8], queue: impl AsRef<[u8]>, oracle_account: &AccountInfo) {
         let mut dst_ref = borrow_mut_account_data!(oracle_account);
         let dst: &mut [u8] = &mut dst_ref;
@@ -477,8 +535,8 @@ impl<'a> OracleQuote<'a> {
     /// and writes it to the target oracle account with proper validation and discriminator.
     ///
     /// # Arguments
-    /// * `ix_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountInfo)
-    /// * `oracle_account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `ix_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountView)
+    /// * `oracle_account` - Any writable account type (mutable `AccountView` for pinocchio, `AccountInfo` for non-pinocchio builds)
     /// * `clock_slot` - Current slot value
     /// * `instruction_index` - Index of the ED25519 instruction to extract (typically 0)
     ///
@@ -506,6 +564,27 @@ impl<'a> OracleQuote<'a> {
     /// # Panics
     /// Panics if instruction extraction fails, program ID validation fails, or slot validation fails.
     #[inline(always)]
+    #[cfg(feature = "pinocchio")]
+    pub fn write_from_ix<'b, I, O, Q>(
+        ix_sysvar: I,
+        mut oracle_account: O,
+        queue: Q,
+        curr_slot: u64,
+        instruction_index: usize,
+    ) where
+        I: AsAccountInfo<'b>,
+        O: AsAccountInfoMut<'b>,
+        Q: AsRef<[u8]>,
+    {
+        let ix_sysvar = ix_sysvar.as_account_info();
+        let oracle_account = oracle_account.as_account_info_mut();
+
+        let data = Instructions::extract_ix_data(ix_sysvar, instruction_index);
+        Self::write(curr_slot, data, queue, oracle_account);
+    }
+
+    #[inline(always)]
+    #[cfg(not(feature = "pinocchio"))]
     pub fn write_from_ix<'b, I, O, Q>(
         ix_sysvar: I,
         oracle_account: O,
@@ -549,8 +628,8 @@ impl<'a> OracleQuote<'a> {
     /// - You're testing with simulated data
     ///
     /// # Arguments
-    /// * `ix_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountInfo)
-    /// * `oracle_account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `ix_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountView)
+    /// * `oracle_account` - Any writable account type (mutable `AccountView` for pinocchio, `AccountInfo` for non-pinocchio builds)
     /// * `instruction_index` - Index of the ED25519 instruction to extract (typically 0)
     ///
     /// # Example with Anchor
@@ -590,6 +669,27 @@ impl<'a> OracleQuote<'a> {
     /// [`write_from_ix`]: Self::write_from_ix
     #[inline(always)]
     #[allow(clippy::missing_safety_doc)] // Safety documentation is comprehensive above
+    #[cfg(feature = "pinocchio")]
+    pub fn write_from_ix_unchecked<'b, I, O, Q>(
+        ix_sysvar: I,
+        mut oracle_account: O,
+        queue: Q,
+        instruction_index: usize,
+    ) where
+        I: AsAccountInfo<'b>,
+        O: AsAccountInfoMut<'b>,
+        Q: AsRef<[u8]>,
+    {
+        let ix_sysvar = ix_sysvar.as_account_info();
+        let oracle_account = oracle_account.as_account_info_mut();
+
+        let data = Instructions::extract_ix_data_unchecked(ix_sysvar, instruction_index);
+        Self::write_unchecked(data, queue, oracle_account);
+    }
+
+    #[inline(always)]
+    #[allow(clippy::missing_safety_doc)] // Safety documentation is comprehensive above
+    #[cfg(not(feature = "pinocchio"))]
     pub fn write_from_ix_unchecked<'b, I, O, Q>(
         ix_sysvar: I,
         oracle_account: O,
