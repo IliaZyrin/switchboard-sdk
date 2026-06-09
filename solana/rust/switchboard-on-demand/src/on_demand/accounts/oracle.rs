@@ -1,5 +1,5 @@
 #[cfg(feature = "pinocchio")]
-type Ref<'a, T> = pinocchio::account_info::Ref<'a, T>;
+type Ref<'a, T> = pinocchio::account::Ref<'a, T>;
 
 #[cfg(not(feature = "pinocchio"))]
 use std::cell::Ref;
@@ -151,6 +151,12 @@ impl OracleAccountData {
     pub fn new<'info>(
         quote_account_info: &'info AccountInfo,
     ) -> Result<Ref<'info, OracleAccountData>, OnDemandError> {
+        #[cfg(feature = "pinocchio")]
+        let data = quote_account_info
+            .try_borrow()
+            .map_err(|_| OnDemandError::AccountBorrowError)?;
+
+        #[cfg(not(feature = "pinocchio"))]
         let data = quote_account_info
             .try_borrow_data()
             .map_err(|_| OnDemandError::AccountBorrowError)?;

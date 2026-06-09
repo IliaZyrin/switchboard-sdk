@@ -19,6 +19,9 @@ compile_error!("Cannot enable both 'client' and 'client-v3' features at the same
 #[cfg(all(feature = "client-v2", feature = "client-v3"))]
 compile_error!("Cannot enable both 'client-v2' and 'client-v3' features at the same time. Use 'client-v2' for Solana v2 or 'client-v3' for Solana v3.");
 
+#[cfg(all(feature = "pinocchio", not(any(feature = "solana-v2", feature = "solana-v3"))))]
+compile_error!("The 'pinocchio' feature requires either 'solana-v2' or 'solana-v3'. Enable one Solana version feature explicitly.");
+
 // When anchor is enabled, use anchor's solana_program (v2.x)
 #[cfg(feature = "anchor")]
 pub use anchor_lang::solana_program;

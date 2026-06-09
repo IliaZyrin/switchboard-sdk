@@ -3,11 +3,11 @@ use crate::{borrow_account_data, check_pubkey_eq, get_account_key, solana_progra
 /// Optimized function to extract the slot value from a Clock sysvar.
 ///
 /// This function extracts just the slot value from any type that implements
-/// `AsAccountInfo`, making it compatible with Anchor's `Sysvar<Clock>` wrapper and pinocchio AccountInfo.
+/// `AsAccountInfo`, making it compatible with Anchor's `Sysvar<Clock>` wrapper and pinocchio `AccountView`.
 /// This is more efficient than parsing the entire Clock struct when you only need the slot.
 ///
 /// # Arguments
-/// * `clock_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Clock>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+/// * `clock_sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Clock>`, direct `AccountInfo` reference, pinocchio `AccountView`)
 ///
 /// # Returns
 /// The current slot value as a `u64`.
@@ -40,10 +40,8 @@ where
         *get_account_key!(clock_sysvar.as_account_info()),
         solana_program::sysvar::clock::ID
     ));
-    unsafe {
-        let clock_data = borrow_account_data!(clock_sysvar.as_account_info());
-        core::ptr::read_unaligned(clock_data.as_ptr() as *const u64)
-    }
+    let clock_data = borrow_account_data!(clock_sysvar.as_account_info());
+    unsafe { core::ptr::read_unaligned(clock_data.as_ptr() as *const u64) }
 }
 
 crate::cfg_client! {

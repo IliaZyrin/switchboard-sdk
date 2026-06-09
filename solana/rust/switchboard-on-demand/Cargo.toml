@@ -1,6 +1,6 @@
 [package]
 name = "switchboard-on-demand"
-version = "0.12.2"
+version = "0.13.0"
 # docs.rs autobuild has difficulty with ahash dep. Host yuorself at https://tiiny.host/
 documentation = "https://docs.rs/switchboard-on-demand/latest/switchboard_on_demand"
 edition = "2021"
@@ -94,7 +94,7 @@ faster-hex = "0.10.0"
 futures = { version = "0.3.31", optional = true }
 hex = { version = "0.4", optional = true }
 libsecp256k1 = { version = "0.7.2", default-features = false, features = ["static-context"] }
-pinocchio = { version = "0.9.2", features = ["std"], optional = true }
+pinocchio = { version = "0.11.1", optional = true }
 prost = { version = "0.13.1", optional = true }
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false, optional = true }
 rust_decimal = "^1"

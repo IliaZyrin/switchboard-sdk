@@ -41,7 +41,7 @@ const SYSVAR_SLOT_LEN: u64 = 512;
 /// verification can be performed.
 ///
 /// The verifier accepts any type that implements `AsAccountInfo`, making it compatible
-/// with Anchor wrapper types like `AccountLoader`, `Sysvar`, etc., as well as pinocchio AccountInfo.
+/// with Anchor wrapper types like `AccountLoader`, `Sysvar`, etc., as well as pinocchio `AccountView`.
 ///
 /// # Example with Anchor Context
 /// ```rust,ignore
@@ -121,13 +121,13 @@ impl<'a> QuoteVerifier<'a> {
     /// be used to validate the signatures in the oracle quote.
     ///
     /// # Arguments
-    /// * `account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.queue(&ctx.accounts.queue);  // Works with Anchor AccountLoader
     /// verifier.queue(&account_info);        // Works with AccountInfo reference
-    /// verifier.queue(&pinocchio_account);   // Works with pinocchio AccountInfo
+    /// verifier.queue(&pinocchio_account);   // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn queue(&mut self, account: &'a AccountInfo) -> &mut Self {
@@ -141,13 +141,13 @@ impl<'a> QuoteVerifier<'a> {
     /// in the oracle quote corresponds to a valid historical slot.
     ///
     /// # Arguments
-    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<SlotHashes>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<SlotHashes>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.slothash_sysvar(&ctx.accounts.slothashes);  // Works with Anchor Sysvar
     /// verifier.slothash_sysvar(&slothash_account);         // Works with AccountInfo reference
-    /// verifier.slothash_sysvar(&pinocchio_account);        // Works with pinocchio AccountInfo
+    /// verifier.slothash_sysvar(&pinocchio_account);        // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn slothash_sysvar(&mut self, sysvar: &'a AccountInfo) -> &mut Self {
@@ -161,13 +161,13 @@ impl<'a> QuoteVerifier<'a> {
     /// will be parsed to extract the oracle signatures and quote data.
     ///
     /// # Arguments
-    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.ix_sysvar(&ctx.accounts.instructions);  // Works with Anchor Sysvar
     /// verifier.ix_sysvar(&ix_account);                 // Works with AccountInfo reference
-    /// verifier.ix_sysvar(&pinocchio_account);          // Works with pinocchio AccountInfo
+    /// verifier.ix_sysvar(&pinocchio_account);          // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn ix_sysvar(&mut self, sysvar: &'a AccountInfo) -> &mut Self {
@@ -202,7 +202,7 @@ impl<'a> QuoteVerifier<'a> {
     ///
     /// # Arguments
     /// * `oracle_account` - Any type that implements `AsAccountInfo` containing the oracle quote data
-    ///   (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    ///   (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Returns
     /// * `Ok(OracleQuote)` - Successfully verified oracle quote with feed data
@@ -226,7 +226,7 @@ impl<'a> QuoteVerifier<'a> {
     {
         let account_info = oracle_account.as_account_info();
 
-        let oracle_data = unsafe { account_info.borrow_data_unchecked() };
+        let oracle_data = unsafe { account_info.borrow_unchecked() };
 
         if oracle_data.len() < 40 {
             bail!(
@@ -410,7 +410,7 @@ impl<'a> QuoteVerifier<'a> {
     {
         let account_info = oracle_account.as_account_info();
 
-        let oracle_data = unsafe { account_info.borrow_data_unchecked() };
+        let oracle_data = unsafe { account_info.borrow_unchecked() };
 
         if oracle_data.len() < 40 {
             bail!(
@@ -508,7 +508,7 @@ impl<'a> QuoteVerifier<'a> {
 
         // Get queue data for oracle signing keys
         // Safely access queue data using RefCell borrow and try_from_bytes
-        let queue_buf = unsafe { borrow_account_data!(queue) };
+        let queue_buf = borrow_account_data!(queue);
         if queue_buf.len() != 6280 {
             bail!("Queue account too small: {} bytes", queue_buf.len());
         }
@@ -624,7 +624,7 @@ impl<'a> QuoteVerifier<'a> {
             *get_account_key!(slothash_sysvar),
             solana_program::sysvar::slot_hashes::ID
         ));
-        let slothash_data = unsafe { borrow_account_data!(slothash_sysvar) };
+        let slothash_data = borrow_account_data!(slothash_sysvar);
 
         // # Safety
         //
@@ -672,13 +672,13 @@ impl<'a> QuoteVerifier<'a> {
     /// be used to validate the signatures in the oracle quote.
     ///
     /// # Arguments
-    /// * `account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `account` - Any type that implements `AsAccountInfo` (e.g., `AccountLoader`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.queue(&ctx.accounts.queue);  // Works with Anchor AccountLoader
     /// verifier.queue(&account_info);        // Works with AccountInfo reference
-    /// verifier.queue(&pinocchio_account);   // Works with pinocchio AccountInfo
+    /// verifier.queue(&pinocchio_account);   // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn queue<T>(&mut self, account: T) -> &mut Self
@@ -695,13 +695,13 @@ impl<'a> QuoteVerifier<'a> {
     /// in the oracle quote corresponds to a valid historical slot.
     ///
     /// # Arguments
-    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<SlotHashes>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<SlotHashes>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.slothash_sysvar(&ctx.accounts.slothashes);  // Works with Anchor Sysvar
     /// verifier.slothash_sysvar(&slothash_account);         // Works with AccountInfo reference
-    /// verifier.slothash_sysvar(&pinocchio_account);        // Works with pinocchio AccountInfo
+    /// verifier.slothash_sysvar(&pinocchio_account);        // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn slothash_sysvar<T>(&mut self, sysvar: T) -> &mut Self
@@ -718,13 +718,13 @@ impl<'a> QuoteVerifier<'a> {
     /// will be parsed to extract the oracle signatures and quote data.
     ///
     /// # Arguments
-    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    /// * `sysvar` - Any type that implements `AsAccountInfo` (e.g., `Sysvar<Instructions>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Example
     /// ```rust,ignore
     /// verifier.ix_sysvar(&ctx.accounts.instructions);  // Works with Anchor Sysvar
     /// verifier.ix_sysvar(&ix_account);                 // Works with AccountInfo reference
-    /// verifier.ix_sysvar(&pinocchio_account);          // Works with pinocchio AccountInfo
+    /// verifier.ix_sysvar(&pinocchio_account);          // Works with pinocchio AccountView
     /// ```
     #[inline(always)]
     pub fn ix_sysvar<T>(&mut self, sysvar: T) -> &mut Self
@@ -762,7 +762,7 @@ impl<'a> QuoteVerifier<'a> {
     ///
     /// # Arguments
     /// * `oracle_account` - Any type that implements `AsAccountInfo` containing the oracle quote data
-    ///   (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio AccountInfo)
+    ///   (e.g., `AccountLoader<SwitchboardQuote>`, direct `AccountInfo` reference, pinocchio `AccountView`)
     ///
     /// # Returns
     /// * `Ok(OracleQuote)` - Successfully verified oracle quote with feed data
@@ -791,7 +791,7 @@ impl<'a> QuoteVerifier<'a> {
         // # Safety: Account data is memory-mapped by Solana runtime and lives for the transaction duration
         // We're using unsafe to extend the lifetime from the temporary borrow to match the account parameter
         let oracle_data: &'data [u8] = unsafe {
-            let temp_borrow = account_info.borrow_data_unchecked();
+            let temp_borrow = account_info.borrow_unchecked();
             std::slice::from_raw_parts(temp_borrow.as_ptr(), temp_borrow.len())
         };
 
@@ -988,7 +988,7 @@ impl<'a> QuoteVerifier<'a> {
     {
         let account_info = oracle_account.as_account_info();
 
-        let oracle_data = account_info.borrow_data_unchecked();
+        let oracle_data = unsafe { account_info.borrow_unchecked() };
 
         if oracle_data.len() < 40 {
             bail!(
@@ -1273,10 +1273,8 @@ where
             INSTRUCTIONS_SYSVAR_ID
         ));
 
-        let num_instructions = unsafe {
-            let data = borrow_account_data!(ix_sysvar_account);
-            read_unaligned(data.as_ptr() as *const u16) as usize
-        };
+        let data = borrow_account_data!(ix_sysvar_account);
+        let num_instructions = unsafe { read_unaligned(data.as_ptr() as *const u16) as usize };
 
         // For get_instruction_relative(-1, ...), we want the previous instruction
         // Since instructions are 0-indexed, the previous instruction is at index (num_instructions - 1)
