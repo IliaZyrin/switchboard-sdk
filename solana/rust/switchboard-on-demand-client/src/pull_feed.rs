@@ -18,7 +18,11 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use solana_client::nonblocking::rpc_client::RpcClient;
-use solana_sdk::{instruction::{AccountMeta, Instruction}, pubkey::Pubkey, message::AddressLookupTableAccount};
+use solana_sdk::{
+    instruction::{AccountMeta, Instruction},
+    message::AddressLookupTableAccount,
+    pubkey::Pubkey,
+};
 use solana_sdk_ids::system_program;
 use std::result::Result;
 use std::sync::Arc;

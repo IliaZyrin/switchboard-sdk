@@ -13,22 +13,37 @@ import { Gateway } from '../oracle-interfaces/gateway.js';
 import {
   getAssociatedTokenAddress,
   getNodePayer,
-  isMainnetConnection,
 } from '../utils/index.js';
 import { getLutKey, getLutSigner } from '../utils/lookupTable.js';
+import {
+  getCrossbarNetworkForCluster,
+  getDefaultQueueAddressForCluster,
+  getOfficialClusterForProgramId,
+  requireSupportedSolanaCluster,
+  UnsupportedSolanaClusterError,
+} from '../utils/solanaCluster.js';
 
-import { Oracle } from './oracle.js';
+import { Oracle, type OracleAccountData } from './oracle.js';
 import type { SwitchboardPermission } from './permission.js';
 import { Permission } from './permission.js';
 import { State } from './state.js';
 
 import type { Program } from '@coral-xyz/anchor-31';
 import { BN, web3 } from '@coral-xyz/anchor-31';
-import type { IOracleFeed } from '@switchboard-xyz/common';
+import type {
+  IOracleFeed,
+  MergedHealthyOracleIndex,
+  OracleHealthData,
+  RandomnessOracleSelectionMetadata,
+  RandomnessOracleSelectorCandidate,
+} from '@switchboard-xyz/common';
 import {
   CrossbarClient,
   CrossbarNetwork,
   FeedHash,
+  fetchHealthyOracleSnapshots,
+  mergeHealthyOracleSnapshots,
+  selectRandomnessOracle as selectRandomnessOracleCandidate,
 } from '@switchboard-xyz/common';
 import axios from 'axios';
 import { Buffer } from 'buffer';
@@ -70,6 +85,69 @@ interface HealthResponse {
   system_time: number;
   restricted: boolean;
   api_key_service_url: string;
+}
+
+export interface SolanaRandomnessOracleCandidate
+  extends RandomnessOracleSelectorCandidate {
+  oracle: Oracle;
+}
+
+export interface SolanaRandomnessOracleSelection {
+  oracle: Oracle;
+  metadata: RandomnessOracleSelectionMetadata;
+}
+
+export interface SolanaRandomnessOracleInspection {
+  candidates: SolanaRandomnessOracleCandidate[];
+  liveHealth: MergedHealthyOracleIndex;
+  metadata: RandomnessOracleSelectionMetadata;
+  queueData: QueueAccountData;
+  selectedCandidate: SolanaRandomnessOracleCandidate;
+}
+
+interface BuildSolanaRandomnessOracleCandidateArgs {
+  data: OracleAccountData;
+  liveOracleHealth?: OracleHealthData;
+  oracle: Oracle;
+  queueData: QueueAccountData;
+  version?: string;
+}
+
+export function buildSolanaRandomnessOracleCandidate({
+  data,
+  liveOracleHealth,
+  oracle,
+  queueData,
+  version,
+}: BuildSolanaRandomnessOracleCandidateArgs): SolanaRandomnessOracleCandidate {
+  const nowUnix = Math.floor(Date.now() / 1000);
+  const liveOracleConfig = liveOracleHealth?.oracle_config;
+  const gatewayUrl = Buffer.from(data.gatewayUri)
+    .toString()
+    .replace(/\0+$/, '');
+
+  return {
+    oracle,
+    oracleId: oracle.pubkey.toBase58(),
+    gatewayUrl,
+    version: liveOracleConfig?.version ?? version ?? undefined,
+    isOnQueue: data.isOnQueue,
+    isVerified: data.enclave.verificationStatus === 4,
+    heartbeatFresh:
+      nowUnix - data.lastHeartbeat.toNumber() <=
+      queueData.nodeTimeout.toNumber(),
+    quoteFresh: data.enclave.validUntil.toNumber() > nowUnix,
+    liveHealthy: Boolean(liveOracleHealth),
+    restricted: liveOracleConfig?.restricted,
+    gatewayEnabled: liveOracleHealth ? gatewayUrl.length > 0 : undefined,
+    pullOracleEnabled:
+      liveOracleHealth && liveOracleConfig?.enable_pull_oracle === 1,
+    lastHeartbeatUnix: data.lastHeartbeat.toNumber(),
+    validUntilUnix: data.enclave.validUntil.toNumber(),
+    activeConnections: liveOracleHealth?.active_connections,
+    totalSubscriptions: liveOracleHealth?.total_subscriptions,
+    totalFeeds: liveOracleHealth?.total_feeds,
+  };
 }
 
 /**
@@ -197,7 +275,7 @@ export interface QueueAccountData {
 export class Queue {
   private data: QueueAccountData | null = null;
   private lookupTable: web3.AddressLookupTableAccount | null = null;
-  private lookupTableRefreshTime: number = 0;
+  private lookupTableRefreshTime = 0;
   private network: CrossbarNetwork | null = null; // Cache network detection
   static readonly DEFAULT_DEVNET_KEY: web3.PublicKey = new web3.PublicKey(
     'EYiAmGSdsQTuCw413V5BzaruWuCCSDgTPtBGvLkXHbe7'
@@ -223,14 +301,16 @@ export class Queue {
    * ```
    */
   static async loadDefault(program: Program): Promise<Queue> {
-    try {
-      const queue = new Queue(program, Queue.DEFAULT_MAINNET_KEY);
-      await queue.loadData();
-      return queue;
-    } catch {
-      // do nothing
+    const cluster = getOfficialClusterForProgramId(program.programId);
+    if (!cluster) {
+      throw new UnsupportedSolanaClusterError(
+        'Queue.loadDefault',
+        ` Program ${program.programId.toBase58()} is not an official Switchboard mainnet/devnet program ID.`
+      );
     }
-    const queue = new Queue(program, Queue.DEFAULT_DEVNET_KEY);
+    const queue = new Queue(program, getDefaultQueueAddressForCluster(cluster));
+    queue.setNetwork(getCrossbarNetworkForCluster(cluster));
+    await queue.loadData();
     return queue;
   }
 
@@ -243,21 +323,11 @@ export class Queue {
   async fetchGatewayByLatestVersion(
     crossbar: CrossbarClient
   ): Promise<Gateway> {
-    // Detect and cache network if not already set
-    if (this.network === null) {
-      const isMainnet = await isMainnetConnection(
-        this.program.provider.connection
-      );
-      this.network = isMainnet
-        ? CrossbarNetwork.SolanaMainnet
-        : CrossbarNetwork.SolanaDevnet;
-    }
-
-    // Set the crossbar network based on detected/cached network
-    crossbar.setNetwork(this.network);
+    const network = await this.resolveCrossbarNetwork();
+    crossbar.setNetwork(network);
 
     const gatewayUrls = await crossbar.fetchGateways(
-      this.network === CrossbarNetwork.SolanaMainnet ? 'mainnet' : 'devnet'
+      network === CrossbarNetwork.SolanaMainnet ? 'mainnet' : 'devnet'
     );
     const gatewayHealths: Array<{
       url: string;
@@ -340,6 +410,79 @@ export class Queue {
     const randomIndex = Math.floor(Math.random() * oracleKeys.length);
     const selectedOracleKey = oracleKeys[randomIndex];
     return new Oracle(this.program, selectedOracleKey);
+  }
+
+  /**
+   * Fetches the healthiest randomness oracle for this queue.
+   *
+   * This path prefers gateway-confirmed healthy oracles and only falls back to
+   * verified, non-stale queue members when live health data is unavailable.
+   */
+  async inspectRandomnessOracles(
+    crossbarClient: CrossbarClient = CrossbarClient.default()
+  ): Promise<SolanaRandomnessOracleInspection> {
+    const queueData = await this.loadData();
+    const oracleKeys = queueData.oracleKeys.slice(0, queueData.oracleKeysLen);
+
+    if (oracleKeys.length === 0) {
+      throw new Error('No oracles found on queue');
+    }
+
+    const oracleData = await Oracle.loadMany(this.program, oracleKeys);
+    const loadedOracleData = oracleData.map((data, index) => {
+      if (!data) {
+        throw new Error(
+          `Failed to load oracle data for queue member ${oracleKeys[index].toBase58()}`
+        );
+      }
+
+      return data;
+    });
+    const onChainGatewayUrls = loadedOracleData
+      .map(data => Buffer.from(data.gatewayUri).toString().replace(/\0+$/, ''))
+      .filter((gatewayUrl): gatewayUrl is string => gatewayUrl.length > 0);
+    const gatewayUrls = await this.fetchRandomnessGatewayUrls(
+      crossbarClient
+    ).catch(() => onChainGatewayUrls);
+    const liveHealth = mergeHealthyOracleSnapshots(
+      await fetchHealthyOracleSnapshots(gatewayUrls)
+    );
+
+    const candidates = oracleKeys.map((oracleKey, index) =>
+      buildSolanaRandomnessOracleCandidate({
+        oracle: new Oracle(this.program, oracleKey),
+        data: loadedOracleData[index],
+        liveOracleHealth: liveHealth.byPullOracle.get(oracleKey.toBase58()),
+        queueData,
+        version: liveHealth.majorityVersion ?? undefined,
+      })
+    );
+
+    const selection = selectRandomnessOracleCandidate(candidates);
+    return {
+      candidates,
+      liveHealth,
+      metadata: selection.metadata,
+      queueData,
+      selectedCandidate: selection.candidate,
+    };
+  }
+
+  async selectRandomnessOracle(
+    crossbarClient: CrossbarClient = CrossbarClient.default()
+  ): Promise<SolanaRandomnessOracleSelection> {
+    const selection = await this.inspectRandomnessOracles(crossbarClient);
+    return {
+      oracle: selection.selectedCandidate.oracle,
+      metadata: selection.metadata,
+    };
+  }
+
+  async fetchFreshOracle(
+    crossbarClient: CrossbarClient = CrossbarClient.default()
+  ): Promise<web3.PublicKey> {
+    const selection = await this.inspectRandomnessOracles(crossbarClient);
+    return selection.selectedCandidate.oracle.pubkey;
   }
 
   /**
@@ -608,6 +751,31 @@ export class Queue {
     return this.network;
   }
 
+  private async resolveCrossbarNetwork(): Promise<CrossbarNetwork> {
+    if (this.network !== null) {
+      return this.network;
+    }
+
+    const cluster =
+      getOfficialClusterForProgramId(this.program.programId) ??
+      (await requireSupportedSolanaCluster(
+        this.program.provider.connection,
+        `Queue(${this.pubkey.toBase58()})`
+      ));
+    this.network = getCrossbarNetworkForCluster(cluster);
+    return this.network;
+  }
+
+  private async fetchRandomnessGatewayUrls(
+    crossbarClient: CrossbarClient
+  ): Promise<string[]> {
+    const network = await this.resolveCrossbarNetwork();
+    crossbarClient.setNetwork(network);
+    return crossbarClient.fetchGateways(
+      network === CrossbarNetwork.SolanaMainnet ? 'mainnet' : 'devnet'
+    );
+  }
+
   /**
    *  Loads the queue data from on chain and returns the listed oracle keys.
    *
@@ -643,19 +811,7 @@ export class Queue {
     variableOverrides?: Record<string, string>;
   }): Promise<FetchSignaturesConsensusResponse> {
     const crossbarClient = params.crossbarClient ?? CrossbarClient.default();
-
-    // Detect and cache network if not already set
-    if (this.network === null) {
-      const isMainnet = await isMainnetConnection(
-        this.program.provider.connection
-      );
-      this.network = isMainnet
-        ? CrossbarNetwork.SolanaMainnet
-        : CrossbarNetwork.SolanaDevnet;
-    }
-
-    // Set the crossbar network based on detected/cached network
-    crossbarClient.setNetwork(this.network);
+    crossbarClient.setNetwork(await this.resolveCrossbarNetwork());
 
     const gateway = await crossbarClient.fetchGateway();
 
@@ -1051,19 +1207,7 @@ export class Queue {
       numSignatures: 1,
       instructionIdx: 0,
     };
-
-    // Detect and cache network if not already set
-    if (this.network === null) {
-      const isMainnet = await isMainnetConnection(
-        this.program.provider.connection
-      );
-      this.network = isMainnet
-        ? CrossbarNetwork.SolanaMainnet
-        : CrossbarNetwork.SolanaDevnet;
-    }
-
-    // Set the crossbar network based on detected/cached network
-    crossbar.setNetwork(this.network);
+    crossbar.setNetwork(await this.resolveCrossbarNetwork());
 
     // Fetch gateway from crossbar
     let gateway: Gateway;
@@ -1323,19 +1467,7 @@ export class Queue {
       numSignatures: 1,
       instructionIdx: 0,
     };
-
-    // Detect and cache network if not already set
-    if (this.network === null) {
-      const isMainnet = await isMainnetConnection(
-        this.program.provider.connection
-      );
-      this.network = isMainnet
-        ? CrossbarNetwork.SolanaMainnet
-        : CrossbarNetwork.SolanaDevnet;
-    }
-
-    // Set the crossbar network based on detected/cached network
-    crossbar.setNetwork(this.network);
+    crossbar.setNetwork(await this.resolveCrossbarNetwork());
 
     // Handle both feed hashes and OracleFeed array input
     let feedHashes: string[];

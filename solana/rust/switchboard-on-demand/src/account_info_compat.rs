@@ -1,12 +1,16 @@
 //! Compatibility layer for different AccountInfo types
 //!
 //! This module provides compatibility between different AccountInfo implementations,
-//! using pinocchio AccountInfo internally when the pinocchio feature is enabled,
+//! using pinocchio AccountView internally when the pinocchio feature is enabled,
 //! otherwise falling back to anchor/solana-program AccountInfo types.
 
-// Use pinocchio AccountInfo when the feature is enabled for better performance
+// Use pinocchio AccountView when the feature is enabled for better performance.
 #[cfg(feature = "pinocchio")]
-pub type AccountInfo = pinocchio::account_info::AccountInfo;
+pub type AccountView = pinocchio::AccountView;
+
+// Backwards-compatible alias for existing callers that import AccountInfo from this crate.
+#[cfg(feature = "pinocchio")]
+pub type AccountInfo = AccountView;
 
 // Otherwise use the appropriate AccountInfo type based on anchor feature
 #[cfg(all(not(feature = "pinocchio"), feature = "anchor"))]
@@ -21,6 +25,11 @@ pub trait AsAccountInfo<'a> {
     fn as_account_info(&self) -> &AccountInfo;
 }
 
+#[cfg(feature = "pinocchio")]
+pub trait AsAccountInfoMut<'a>: AsAccountInfo<'a> {
+    fn as_account_info_mut(&mut self) -> &mut AccountInfo;
+}
+
 #[cfg(not(feature = "pinocchio"))]
 pub trait AsAccountInfo<'a> {
     fn as_account_info(&self) -> &AccountInfo<'a>;
@@ -31,6 +40,14 @@ pub trait AsAccountInfo<'a> {
 impl<'a> AsAccountInfo<'a> for AccountInfo {
     #[inline(always)]
     fn as_account_info(&self) -> &AccountInfo {
+        self
+    }
+}
+
+#[cfg(feature = "pinocchio")]
+impl<'a> AsAccountInfoMut<'a> for AccountInfo {
+    #[inline(always)]
+    fn as_account_info_mut(&mut self) -> &mut AccountInfo {
         self
     }
 }
@@ -52,6 +69,22 @@ impl<'a> AsAccountInfo<'a> for &AccountInfo {
     }
 }
 
+#[cfg(feature = "pinocchio")]
+impl<'a> AsAccountInfo<'a> for &mut AccountInfo {
+    #[inline(always)]
+    fn as_account_info(&self) -> &AccountInfo {
+        self
+    }
+}
+
+#[cfg(feature = "pinocchio")]
+impl<'a> AsAccountInfoMut<'a> for &mut AccountInfo {
+    #[inline(always)]
+    fn as_account_info_mut(&mut self) -> &mut AccountInfo {
+        self
+    }
+}
+
 #[cfg(not(feature = "pinocchio"))]
 impl<'a> AsAccountInfo<'a> for &AccountInfo<'a> {
     #[inline(always)]
@@ -65,7 +98,7 @@ impl<'a> AsAccountInfo<'a> for &AccountInfo<'a> {
 #[macro_export]
 macro_rules! get_account_key {
     ($account:expr) => {
-        $account.key()
+        $account.address()
     };
 }
 
@@ -81,7 +114,7 @@ macro_rules! get_account_key {
 #[macro_export]
 macro_rules! borrow_account_data {
     ($account:expr) => {
-        $account.borrow_data_unchecked()
+        unsafe { $account.borrow_unchecked() }
     };
 }
 
@@ -97,7 +130,7 @@ macro_rules! borrow_account_data {
 #[macro_export]
 macro_rules! borrow_mut_account_data {
     ($account:expr) => {
-        unsafe { $account.borrow_mut_data_unchecked() }
+        unsafe { $account.borrow_unchecked_mut() }
     };
 }
 

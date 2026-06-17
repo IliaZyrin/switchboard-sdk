@@ -1,5 +1,5 @@
 #[cfg(feature = "pinocchio")]
-type Ref<'a, T> = pinocchio::account_info::Ref<'a, T>;
+type Ref<'a, T> = pinocchio::account::Ref<'a, T>;
 
 #[cfg(not(feature = "pinocchio"))]
 use std::cell::Ref;
@@ -175,6 +175,12 @@ impl QueueAccountData {
     pub fn new<'info>(
         attestation_queue_account_info: &'info AccountInfo,
     ) -> Result<Ref<'info, QueueAccountData>, OnDemandError> {
+        #[cfg(feature = "pinocchio")]
+        let data = attestation_queue_account_info
+            .try_borrow()
+            .map_err(|_| OnDemandError::AccountBorrowError)?;
+
+        #[cfg(not(feature = "pinocchio"))]
         let data = attestation_queue_account_info
             .try_borrow_data()
             .map_err(|_| OnDemandError::AccountBorrowError)?;

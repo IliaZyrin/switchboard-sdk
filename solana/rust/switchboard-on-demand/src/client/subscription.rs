@@ -152,10 +152,8 @@ cfg_client! {
         use crate::client::Queue;
         use std::sync::Arc;
 
-        #[cfg(feature = "solana-v2")]
         use crate::solana_compat::solana_client::nonblocking::rpc_client::RpcClient;
-        #[cfg(feature = "solana-v2")]
-        use crate::solana_sdk::signature::Keypair;
+        use crate::solana_compat::solana_sdk::signer::keypair::Keypair;
         use crate::Instruction;
 
     /// Parameters for creating a new subscription

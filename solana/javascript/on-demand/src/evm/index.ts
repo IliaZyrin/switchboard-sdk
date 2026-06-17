@@ -10,7 +10,25 @@ import {
   createV0AttestationHexString,
 } from './message.js';
 
-import { CrossbarClient, IOracleJob, OracleJob } from '@switchboard-xyz/common';
+import { keccak_256 } from '@noble/hashes/sha3';
+import {
+  createFallbackOracleInfo,
+  CrossbarClient,
+  evaluateRandomnessOracleCandidate,
+  fetchHealthyOracleSnapshots,
+  getActiveRandomnessEvmDeployment,
+  getCrossbarOracleNetworkForEvmChainId,
+  IOracleJob,
+  isRandomnessOracleCandidateEligible,
+  type MergedHealthyOracleIndex,
+  mergeHealthyOracleSnapshots,
+  type OracleHealthData,
+  type OracleInfo,
+  OracleJob,
+  type RandomnessOracleSelectionMetadata,
+  type RandomnessOracleSelectorCandidate,
+  selectRandomnessOracle as selectRandomnessOracleCandidate,
+} from '@switchboard-xyz/common';
 import axios from 'axios';
 import { Buffer } from 'buffer';
 
@@ -121,6 +139,34 @@ export interface FetchRandomnessArgs {
   minStalenessSeconds?: number;
 }
 
+export interface SelectEvmRandomnessOracleArgs {
+  chainId: number;
+  crossbarUrl?: string;
+}
+
+export interface EvmRandomnessOracleCandidate
+  extends RandomnessOracleSelectorCandidate {
+  authority: string;
+  pubkey: string;
+  secp256k1Key: string;
+  signingAddress: string;
+}
+
+export interface EvmRandomnessOracleSelection {
+  candidate: EvmRandomnessOracleCandidate;
+  deploymentId: string;
+  metadata: RandomnessOracleSelectionMetadata;
+  network: 'mainnet' | 'devnet';
+  oracle: string;
+}
+
+export interface EvmRandomnessOracleInspection
+  extends EvmRandomnessOracleSelection {
+  candidates: EvmRandomnessOracleCandidate[];
+  liveHealth: MergedHealthyOracleIndex;
+  oracles: OracleInfo[];
+}
+
 /**
  * Get an oracle job from object definition
  * @param params the job parameters
@@ -132,6 +178,257 @@ export function createJob(params: IOracleJob): OracleJob {
 
 function getCrossbarUrl(crossbarUrl?: string): string {
   return crossbarUrl ?? CrossbarClient.default().crossbarUrl;
+}
+
+function normalizeUnixTimestamp(value?: number): number | undefined {
+  const numericValue = value ?? Number.NaN;
+  if (!Number.isFinite(numericValue)) {
+    return undefined;
+  }
+
+  return numericValue > 1_000_000_000_000
+    ? Math.floor(numericValue / 1000)
+    : numericValue;
+}
+
+function resolveGatewayUrl(
+  oracle: OracleInfo,
+  healthData?: OracleHealthData
+): string | undefined {
+  return oracle.gatewayUrl ?? healthData?.oracle_config?.gateway_ingress;
+}
+
+function trimHexPrefix(value: string): string {
+  return value.replace(/^0x/i, '');
+}
+
+function normalizeExplicitSigningAddress(
+  signingAddress?: string | null
+): string | undefined {
+  const normalized = signingAddress?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeUncompressedSecp256k1Key(
+  secp256k1Key?: string | null
+): string | undefined {
+  let key = trimHexPrefix(secp256k1Key?.trim() ?? '');
+  if (key.length === 130 && key.slice(0, 2).toLowerCase() === '04') {
+    key = key.slice(2);
+  }
+
+  if (key.length !== 128 || !/^[0-9a-fA-F]+$/.test(key)) {
+    return undefined;
+  }
+
+  return key;
+}
+
+export function deriveEvmAddressFromSecp256k1Key(
+  secp256k1Key?: string | null
+): string | undefined {
+  const normalizedKey = normalizeUncompressedSecp256k1Key(secp256k1Key);
+  if (!normalizedKey) {
+    return undefined;
+  }
+
+  const hash = keccak_256(Buffer.from(normalizedKey, 'hex'));
+  return `0x${Buffer.from(hash.slice(-20)).toString('hex')}`;
+}
+
+export function resolveEvmOracleSigningAddress(
+  oracle: Pick<OracleInfo, 'signingAddress' | 'secp256k1Key'>
+): string | undefined {
+  return (
+    normalizeExplicitSigningAddress(oracle.signingAddress) ??
+    deriveEvmAddressFromSecp256k1Key(oracle.secp256k1Key)
+  );
+}
+
+export function buildEvmRandomnessOracleCandidate(
+  oracle: OracleInfo,
+  healthData?: OracleHealthData
+): EvmRandomnessOracleCandidate {
+  const lastHeartbeatUnix = normalizeUnixTimestamp(
+    healthData?.oracle_config?.system_time
+  );
+  const fallbackCandidate = createFallbackOracleInfo(oracle);
+  const signingAddress = resolveEvmOracleSigningAddress(oracle);
+  const gatewayUrl = resolveGatewayUrl(oracle, healthData);
+
+  return {
+    ...fallbackCandidate,
+    oracleId: signingAddress ?? fallbackCandidate.oracleId,
+    authority: oracle.authority,
+    pubkey: oracle.pubkey,
+    secp256k1Key: oracle.secp256k1Key,
+    signingAddress: signingAddress ?? '',
+    gatewayUrl,
+    version:
+      healthData?.oracle_config?.version ??
+      oracle.version ??
+      fallbackCandidate.version,
+    liveHealthy: Boolean(healthData),
+    heartbeatFresh: healthData ? true : fallbackCandidate.heartbeatFresh,
+    // Crossbar expirationTime tracks discovery freshness, not enclave quote
+    // validity, so EVM randomness keeps quote freshness independent of it.
+    quoteFresh: fallbackCandidate.quoteFresh,
+    restricted:
+      healthData?.oracle_config?.restricted ??
+      oracle.restricted ??
+      fallbackCandidate.restricted,
+    gatewayEnabled: healthData
+      ? Boolean(gatewayUrl)
+      : fallbackCandidate.gatewayEnabled,
+    pullOracleEnabled: healthData
+      ? healthData.oracle_config?.enable_pull_oracle === 1
+      : fallbackCandidate.pullOracleEnabled,
+    lastHeartbeatUnix,
+    validUntilUnix: undefined,
+    activeConnections: healthData?.active_connections,
+    totalSubscriptions: healthData?.total_subscriptions,
+    totalFeeds: healthData?.total_feeds,
+  };
+}
+
+export function selectStrictEvmRandomnessOracleCandidate(
+  candidates: EvmRandomnessOracleCandidate[]
+): {
+  candidate: EvmRandomnessOracleCandidate;
+  metadata: RandomnessOracleSelectionMetadata;
+} {
+  if (candidates.length === 0) {
+    throw new Error('No randomness oracle candidates were provided');
+  }
+
+  const evaluations = candidates.map(evaluateRandomnessOracleCandidate);
+  const liveEligibleCandidates = candidates.filter(
+    candidate =>
+      candidate.liveHealthy && isRandomnessOracleCandidateEligible(candidate)
+  );
+
+  if (liveEligibleCandidates.length === 0) {
+    throw new Error('No eligible randomness oracle candidates were found');
+  }
+
+  const liveSelection = selectRandomnessOracleCandidate(liveEligibleCandidates);
+  const majorityVersion = liveSelection.metadata.majorityVersion;
+
+  for (const evaluation of evaluations) {
+    if (evaluation.oracleId === liveSelection.candidate.oracleId) {
+      evaluation.tier = 'live';
+    } else if (
+      majorityVersion !== null &&
+      evaluation.version !== null &&
+      evaluation.version !== majorityVersion
+    ) {
+      evaluation.rejectionReasons = [
+        ...evaluation.rejectionReasons,
+        'version-mismatch',
+      ];
+    }
+  }
+
+  return {
+    candidate: liveSelection.candidate,
+    metadata: {
+      tier: 'live',
+      majorityVersion,
+      liveHealthyCandidateCount: liveEligibleCandidates.length,
+      fallbackCandidateCount: 0,
+      evaluations,
+    },
+  };
+}
+
+/**
+ * Select a healthy EVM randomness oracle from the active deployment inventory.
+ *
+ * This requires live gateway health and does not fall back to inventory-only
+ * candidates.
+ */
+export async function inspectRandomnessOracleSelection({
+  chainId,
+  crossbarUrl,
+}: SelectEvmRandomnessOracleArgs): Promise<EvmRandomnessOracleInspection> {
+  const deployment = getActiveRandomnessEvmDeployment(chainId);
+  if (!deployment) {
+    throw new Error(
+      `Unsupported active randomness EVM deployment for chainId ${chainId}`
+    );
+  }
+
+  const network = getCrossbarOracleNetworkForEvmChainId(chainId);
+  const crossbar = new CrossbarClient(getCrossbarUrl(crossbarUrl));
+  const oracles = (await crossbar.fetchOracles(network)) as OracleInfo[];
+
+  if (oracles.length === 0) {
+    throw new Error(
+      `No Crossbar oracle inventory found for ${deployment.id} (${network})`
+    );
+  }
+
+  const gatewayUrls = await crossbar
+    .fetchGateways(network)
+    .catch(() =>
+      oracles
+        .map(oracle => oracle.gatewayUrl)
+        .filter((gatewayUrl): gatewayUrl is string => Boolean(gatewayUrl))
+    );
+  const healthySnapshots = await fetchHealthyOracleSnapshots(gatewayUrls);
+  const mergedSnapshots = mergeHealthyOracleSnapshots(healthySnapshots);
+  const candidates = oracles
+    .map(oracle =>
+      buildEvmRandomnessOracleCandidate(
+        oracle,
+        mergedSnapshots.bySecp256k1Key.get(oracle.secp256k1Key)
+      )
+    )
+    .filter(candidate => candidate.signingAddress.length > 0);
+
+  if (candidates.length === 0) {
+    throw new Error(
+      `No EVM randomness oracles exposed a signing address for ${deployment.id}`
+    );
+  }
+
+  const { candidate, metadata } =
+    selectStrictEvmRandomnessOracleCandidate(candidates);
+
+  return {
+    candidate,
+    candidates,
+    deploymentId: deployment.id,
+    liveHealth: mergedSnapshots,
+    metadata,
+    network,
+    oracle: candidate.signingAddress,
+    oracles,
+  };
+}
+
+/**
+ * Select a healthy EVM randomness oracle from the active deployment inventory.
+ *
+ * This requires live gateway health and does not fall back to inventory-only
+ * candidates.
+ */
+export async function selectRandomnessOracle({
+  chainId,
+  crossbarUrl,
+}: SelectEvmRandomnessOracleArgs): Promise<EvmRandomnessOracleSelection> {
+  const inspection = await inspectRandomnessOracleSelection({
+    chainId,
+    crossbarUrl,
+  });
+
+  return {
+    candidate: inspection.candidate,
+    deploymentId: inspection.deploymentId,
+    metadata: inspection.metadata,
+    network: inspection.network,
+    oracle: inspection.oracle,
+  };
 }
 
 /**
@@ -343,11 +640,11 @@ async function fetchUpdateData(
   crossbarUrl: string,
   chainId: string,
   feedId: string,
-  minResponses: number = 1,
-  maxVariance: number = 1e9,
-  numSignatures: number = 1,
-  syncOracles: boolean = true,
-  syncGuardians: boolean = true,
+  minResponses = 1,
+  maxVariance = 1e9,
+  numSignatures = 1,
+  syncOracles = true,
+  syncGuardians = true,
   gateway?: string
 ): Promise<FetchFeedResponse> {
   const cleanedCrossbarUrl = crossbarUrl.endsWith('/')
